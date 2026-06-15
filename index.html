@@ -24,6 +24,7 @@
             border-radius: 20px;
             padding: 10px 8px 12px;
             box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+            position: relative;
         }
         canvas {
             display: block;
@@ -78,6 +79,7 @@
             border-radius: 30px;
             cursor: pointer;
             font-family: inherit;
+            transition: 0.05s linear;
         }
         button:active {
             transform: translateY(1px);
@@ -121,14 +123,15 @@
         let score = 0;
         let lives = 3;
         let bestScore = 0;
-        let gameRunning = true;
+        let gameRunning = false;     // игра не запущена до старта
+        let gameStarted = false;     // флаг, что было нажато "Старт"
         
         let baseFallSpeed = 2.2;
         let currentGlobalSpeed = baseFallSpeed;
         let slowMotionTimer = null;
         let slowMotionActive = false;
-        let slowMotionStartTime = 0;     // время начала замедления
-        let slowMotionDuration = 3000;   // 3 секунды
+        let slowMotionStartTime = 0;
+        let slowMotionDuration = 3000;
         
         let framesCounter = 0;
         let spawnDelayFrames = 30;
@@ -142,6 +145,7 @@
         const livesSpan = document.getElementById('livesValue');
         const bestSpan = document.getElementById('bestValue');
         const comboDisplay = document.getElementById('comboDisplay');
+        const restartBtn = document.getElementById('restartButton');
         
         // рекорд
         try {
@@ -153,7 +157,7 @@
         function updateUI() {
             scoreSpan.innerText = Math.floor(score);
             livesSpan.innerText = lives;
-            if(score > bestScore) {
+            if(score > bestScore && gameStarted) {
                 bestScore = Math.floor(score);
                 bestSpan.innerText = bestScore;
                 try { localStorage.setItem('collectorBest', bestScore); } catch(e) {}
@@ -175,7 +179,6 @@
             updateUI();
         }
         
-        // Замедление с запоминанием времени старта для полоски
         function activateSlowMotion(durationMs) {
             if(slowMotionTimer) clearTimeout(slowMotionTimer);
             
@@ -196,7 +199,6 @@
             }, durationMs);
         }
         
-        // Получить оставшийся процент замедления (для полоски)
         function getSlowMotionPercent() {
             if(!slowMotionActive) return 0;
             const elapsed = Date.now() - slowMotionStartTime;
@@ -204,7 +206,6 @@
             return (remaining / slowMotionDuration) * 100;
         }
         
-        // Добавление жизни
         function addLife() {
             if(lives < 10) {
                 lives++;
@@ -213,6 +214,7 @@
         }
         
         function updateDifficulty() {
+            if(!gameStarted) return;
             let newBase = 2.2 + (Math.floor(score / 300)) * 0.4;
             if(newBase > 4.8) newBase = 4.8;
             baseFallSpeed = newBase;
@@ -224,11 +226,10 @@
         }
         
         function spawnItem() {
-            if(!gameRunning) return;
+            if(!gameRunning || !gameStarted) return;
             const rand = Math.random();
             let type = 'fruit';
             
-            // Шансы: 48% фрукт, 15% кристалл, 12% сердечко, 25% бомба
             if(rand < 0.25) {
                 type = 'bomb';
             } else if(rand < 0.37) {
@@ -291,7 +292,7 @@
         }
         
         function updateItems() {
-            if(!gameRunning) return;
+            if(!gameRunning || !gameStarted) return;
             const cartRect = { x: cartX, y: CART_Y, w: CART_W, h: CART_H };
             const newItems = [];
             for(let item of items) {
@@ -314,7 +315,7 @@
         }
         
         function handleSpawning() {
-            if(!gameRunning) return;
+            if(!gameRunning || !gameStarted) return;
             framesCounter++;
             if(framesCounter >= spawnDelayFrames) {
                 framesCounter = 0;
@@ -325,7 +326,7 @@
         
         // управление
         function handleMove(clientX) {
-            if(!gameRunning) return;
+            if(!gameRunning || !gameStarted) return;
             const rect = canvas.getBoundingClientRect();
             const scaleX = CW / rect.width;
             let canvasX = (clientX - rect.left) * scaleX;
@@ -347,155 +348,10 @@
         canvas.addEventListener('click', (e) => handleMove(e.clientX));
         canvas.addEventListener('contextmenu', (e) => e.preventDefault());
         
-        // отрисовка с полоской замедления
-        function draw() {
-            ctx.clearRect(0, 0, CW, CH);
-            ctx.fillStyle = '#fdf8e7';
-            ctx.fillRect(0, 0, CW, CH);
-            
-            // сетка
-            ctx.strokeStyle = '#e9dfb0';
-            ctx.lineWidth = 0.5;
-            for(let i=0; i<CW; i+=40) {
-                ctx.beginPath();
-                ctx.moveTo(i, 0);
-                ctx.lineTo(i, CH);
-                ctx.stroke();
-                ctx.moveTo(0, i%CH);
-                ctx.lineTo(CW, i%CH);
-                ctx.stroke();
-            }
-            
-            // предметы
-            for(let item of items) {
-                if(item.type === 'fruit') {
-                    const grad = ctx.createRadialGradient(item.x-2, item.y-2, 2, item.x, item.y, 9);
-                    grad.addColorStop(0, '#ff7e40');
-                    grad.addColorStop(1, '#e63e10');
-                    ctx.fillStyle = grad;
-                    ctx.beginPath();
-                    ctx.arc(item.x, item.y, item.radius, 0, Math.PI*2);
-                    ctx.fill();
-                    ctx.fillStyle = '#583c1a';
-                    ctx.beginPath();
-                    ctx.arc(item.x-2, item.y-3, 1.8, 0, Math.PI*2);
-                    ctx.fill();
-                    ctx.fillStyle = '#fff9cf';
-                    ctx.beginPath();
-                    ctx.arc(item.x-3, item.y-4, 1, 0, Math.PI*2);
-                    ctx.fill();
-                }
-                else if(item.type === 'slow_gem') {
-                    ctx.fillStyle = '#4a9eff';
-                    ctx.beginPath();
-                    ctx.arc(item.x, item.y, item.radius, 0, Math.PI*2);
-                    ctx.fill();
-                    ctx.fillStyle = '#ffffff';
-                    ctx.font = `${item.radius+4}px monospace`;
-                    ctx.fillText('❄️', item.x-7, item.y+5);
-                    ctx.fillStyle = '#c8e7ff';
-                    ctx.beginPath();
-                    ctx.arc(item.x-2, item.y-3, 2, 0, Math.PI*2);
-                    ctx.fill();
-                }
-                else if(item.type === 'heart') {
-                    ctx.fillStyle = '#ff4466';
-                    ctx.beginPath();
-                    ctx.arc(item.x, item.y, item.radius, 0, Math.PI*2);
-                    ctx.fill();
-                    ctx.fillStyle = '#ffffff';
-                    ctx.font = `${item.radius+4}px monospace`;
-                    ctx.fillText('❤️', item.x-7, item.y+5);
-                    ctx.fillStyle = '#ffaacc';
-                    ctx.beginPath();
-                    ctx.arc(item.x-2, item.y-3, 2, 0, Math.PI*2);
-                    ctx.fill();
-                }
-                else if(item.type === 'bomb') {
-                    ctx.fillStyle = '#2b2b2b';
-                    ctx.beginPath();
-                    ctx.arc(item.x, item.y, item.radius, 0, Math.PI*2);
-                    ctx.fill();
-                    ctx.fillStyle = '#a51f1f';
-                    ctx.beginPath();
-                    ctx.arc(item.x, item.y, item.radius-3, 0, Math.PI*2);
-                    ctx.fill();
-                    ctx.fillStyle = '#ff884d';
-                    ctx.font = `${item.radius+3}px monospace`;
-                    ctx.fillText('💣', item.x-6, item.y+5);
-                }
-            }
-            
-            // тележка
-            ctx.fillStyle = '#bd7a3a';
-            ctx.fillRect(cartX, CART_Y, CART_W, CART_H);
-            ctx.fillStyle = '#e7a05e';
-            ctx.fillRect(cartX+5, CART_Y-3, CART_W-10, 5);
-            ctx.fillStyle = '#4f2f10';
-            ctx.fillRect(cartX+12, CART_Y+3, 8, 7);
-            ctx.fillRect(cartX+CART_W-20, CART_Y+3, 8, 7);
-            
-            // ========== ПОЛОСКА ЗАМЕДЛЕНИЯ (постепенно исчезает) ==========
-            if(slowMotionActive) {
-                const percent = getSlowMotionPercent();
-                const barWidth = 120;
-                const barHeight = 10;
-                const barX = CW - barWidth - 10;
-                const barY = 12;
-                
-                // фон полоски
-                ctx.fillStyle = '#334455aa';
-                ctx.fillRect(barX, barY, barWidth, barHeight);
-                
-                // заполненная часть (уменьшается со временем)
-                const fillWidth = (percent / 100) * barWidth;
-                const gradient = ctx.createLinearGradient(barX, barY, barX + barWidth, barY);
-                gradient.addColorStop(0, '#88ccff');
-                gradient.addColorStop(1, '#3399ff');
-                ctx.fillStyle = gradient;
-                ctx.fillRect(barX, barY, fillWidth, barHeight);
-                
-                // обводка
-                ctx.strokeStyle = '#ffffffcc';
-                ctx.lineWidth = 1;
-                ctx.strokeRect(barX, barY, barWidth, barHeight);
-                
-                // текст "SLOW"
-                ctx.font = "bold 9px monospace";
-                ctx.fillStyle = "#aaddff";
-                ctx.fillText("❄️ ЗАМЕДЛЕНИЕ", barX, barY - 3);
-            }
-            
-            // подсказки
-            ctx.font = "9px monospace";
-            ctx.fillStyle = "#8b6946";
-            ctx.fillText("❄️=замедление  ❤️=+жизнь", CW-150, CH-8);
-            
-            if(!gameRunning) {
-                ctx.globalAlpha = 0.85;
-                ctx.fillStyle = '#1b1b2c';
-                ctx.fillRect(0, 0, CW, CH);
-                ctx.globalAlpha = 1;
-                ctx.font = 'bold 24px monospace';
-                ctx.fillStyle = '#ffb347';
-                ctx.fillText('GAME OVER', CW/2-85, CH/2-15);
-                ctx.font = '12px monospace';
-                ctx.fillStyle = '#ffdd99';
-                ctx.fillText('нажми 🔄', CW/2-35, CH/2+20);
-            }
-        }
-        
-        function gameUpdate() {
-            if(gameRunning) {
-                updateDifficulty();
-                handleSpawning();
-                updateItems();
-            }
-            draw();
-            requestAnimationFrame(gameUpdate);
-        }
-        
-        function restartGame() {
+        // СТАРТ ИГРЫ
+        function startGame() {
+            if(gameStarted) return;
+            gameStarted = true;
             gameRunning = true;
             items = [];
             score = 0;
@@ -515,9 +371,252 @@
             updateDifficulty();
         }
         
-        document.getElementById('restartButton').addEventListener('click', () => restartGame());
+        // Перезапуск (после Game Over)
+        function restartGame() {
+            if(!gameStarted) {
+                startGame();
+                return;
+            }
+            gameRunning = true;
+            items = [];
+            score = 0;
+            lives = 3;
+            comboCounter = 0;
+            baseFallSpeed = 2.2;
+            currentGlobalSpeed = baseFallSpeed;
+            if(slowMotionTimer) {
+                clearTimeout(slowMotionTimer);
+                slowMotionTimer = null;
+            }
+            slowMotionActive = false;
+            framesCounter = 0;
+            spawnDelayFrames = 30;
+            cartX = (CW - CART_W)/2;
+            updateUI();
+            updateDifficulty();
+        }
         
-        restartGame();
+        restartBtn.addEventListener('click', () => {
+            if(!gameStarted) {
+                startGame();
+            } else {
+                restartGame();
+            }
+        });
+        
+        // отрисовка со стартовым меню
+        function draw() {
+            ctx.clearRect(0, 0, CW, CH);
+            ctx.fillStyle = '#fdf8e7';
+            ctx.fillRect(0, 0, CW, CH);
+            
+            // сетка
+            ctx.strokeStyle = '#e9dfb0';
+            ctx.lineWidth = 0.5;
+            for(let i=0; i<CW; i+=40) {
+                ctx.beginPath();
+                ctx.moveTo(i, 0);
+                ctx.lineTo(i, CH);
+                ctx.stroke();
+                ctx.moveTo(0, i%CH);
+                ctx.lineTo(CW, i%CH);
+                ctx.stroke();
+            }
+            
+            // предметы (только если игра активна)
+            if(gameStarted && gameRunning) {
+                for(let item of items) {
+                    if(item.type === 'fruit') {
+                        const grad = ctx.createRadialGradient(item.x-2, item.y-2, 2, item.x, item.y, 9);
+                        grad.addColorStop(0, '#ff7e40');
+                        grad.addColorStop(1, '#e63e10');
+                        ctx.fillStyle = grad;
+                        ctx.beginPath();
+                        ctx.arc(item.x, item.y, item.radius, 0, Math.PI*2);
+                        ctx.fill();
+                        ctx.fillStyle = '#583c1a';
+                        ctx.beginPath();
+                        ctx.arc(item.x-2, item.y-3, 1.8, 0, Math.PI*2);
+                        ctx.fill();
+                        ctx.fillStyle = '#fff9cf';
+                        ctx.beginPath();
+                        ctx.arc(item.x-3, item.y-4, 1, 0, Math.PI*2);
+                        ctx.fill();
+                    }
+                    else if(item.type === 'slow_gem') {
+                        ctx.fillStyle = '#4a9eff';
+                        ctx.beginPath();
+                        ctx.arc(item.x, item.y, item.radius, 0, Math.PI*2);
+                        ctx.fill();
+                        ctx.fillStyle = '#ffffff';
+                        ctx.font = `${item.radius+4}px monospace`;
+                        ctx.fillText('❄️', item.x-7, item.y+5);
+                        ctx.fillStyle = '#c8e7ff';
+                        ctx.beginPath();
+                        ctx.arc(item.x-2, item.y-3, 2, 0, Math.PI*2);
+                        ctx.fill();
+                    }
+                    else if(item.type === 'heart') {
+                        ctx.fillStyle = '#ff4466';
+                        ctx.beginPath();
+                        ctx.arc(item.x, item.y, item.radius, 0, Math.PI*2);
+                        ctx.fill();
+                        ctx.fillStyle = '#ffffff';
+                        ctx.font = `${item.radius+4}px monospace`;
+                        ctx.fillText('❤️', item.x-7, item.y+5);
+                        ctx.fillStyle = '#ffaacc';
+                        ctx.beginPath();
+                        ctx.arc(item.x-2, item.y-3, 2, 0, Math.PI*2);
+                        ctx.fill();
+                    }
+                    else if(item.type === 'bomb') {
+                        ctx.fillStyle = '#2b2b2b';
+                        ctx.beginPath();
+                        ctx.arc(item.x, item.y, item.radius, 0, Math.PI*2);
+                        ctx.fill();
+                        ctx.fillStyle = '#a51f1f';
+                        ctx.beginPath();
+                        ctx.arc(item.x, item.y, item.radius-3, 0, Math.PI*2);
+                        ctx.fill();
+                        ctx.fillStyle = '#ff884d';
+                        ctx.font = `${item.radius+3}px monospace`;
+                        ctx.fillText('💣', item.x-6, item.y+5);
+                    }
+                }
+            }
+            
+            // тележка (всегда рисуем, даже в меню)
+            ctx.fillStyle = '#bd7a3a';
+            ctx.fillRect(cartX, CART_Y, CART_W, CART_H);
+            ctx.fillStyle = '#e7a05e';
+            ctx.fillRect(cartX+5, CART_Y-3, CART_W-10, 5);
+            ctx.fillStyle = '#4f2f10';
+            ctx.fillRect(cartX+12, CART_Y+3, 8, 7);
+            ctx.fillRect(cartX+CART_W-20, CART_Y+3, 8, 7);
+            
+            // полоска замедления
+            if(slowMotionActive && gameStarted && gameRunning) {
+                const percent = getSlowMotionPercent();
+                const barWidth = 120;
+                const barHeight = 10;
+                const barX = CW - barWidth - 10;
+                const barY = 12;
+                
+                ctx.fillStyle = '#334455aa';
+                ctx.fillRect(barX, barY, barWidth, barHeight);
+                
+                const fillWidth = (percent / 100) * barWidth;
+                const gradient = ctx.createLinearGradient(barX, barY, barX + barWidth, barY);
+                gradient.addColorStop(0, '#88ccff');
+                gradient.addColorStop(1, '#3399ff');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(barX, barY, fillWidth, barHeight);
+                
+                ctx.strokeStyle = '#ffffffcc';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(barX, barY, barWidth, barHeight);
+                
+                ctx.font = "bold 9px monospace";
+                ctx.fillStyle = "#aaddff";
+                ctx.fillText("❄️ ЗАМЕДЛЕНИЕ", barX, barY - 3);
+            }
+            
+            // подсказки
+            ctx.font = "9px monospace";
+            ctx.fillStyle = "#8b6946";
+            ctx.fillText("❄️=замедление  ❤️=+жизнь", CW-150, CH-8);
+            
+            // ========== СТАРТОВОЕ МЕНЮ ==========
+            if(!gameStarted) {
+                ctx.globalAlpha = 0.92;
+                ctx.fillStyle = '#1b2c1f';
+                ctx.fillRect(0, 0, CW, CH);
+                ctx.globalAlpha = 1;
+                
+                // заголовок
+                ctx.font = 'bold 28px "Segoe UI", monospace';
+                ctx.fillStyle = '#ffd966';
+                ctx.shadowBlur = 4;
+                ctx.shadowColor = '#00000080';
+                ctx.fillText('🍎 COLLECTOR', CW/2-100, CH/2-60);
+                
+                // надпись "Готов(а)?" 
+                ctx.font = '18px monospace';
+                ctx.fillStyle = '#ffe0aa';
+                ctx.fillText('Готов(а) ?', CW/2-45, CH/2-15);
+                
+                // кнопка старт (нарисованная)
+                const btnX = CW/2 - 55;
+                const btnY = CH/2 + 15;
+                const btnW = 110;
+                const btnH = 38;
+                
+                ctx.fillStyle = '#f4a261';
+                ctx.shadowBlur = 3;
+                ctx.fillRect(btnX, btnY, btnW, btnH);
+                ctx.fillStyle = '#2d1c0c';
+                ctx.font = 'bold 20px monospace';
+                ctx.fillText('СТАРТ', btnX + 28, btnY + 27);
+                ctx.strokeStyle = '#ffffffaa';
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(btnX, btnY, btnW, btnH);
+                
+                // проверка нажатия на кнопку (через координаты клика по canvas)
+                // сохраняем последние координаты клика для проверки
+                canvas.startButtonRect = { x: btnX, y: btnY, w: btnW, h: btnH };
+                
+                ctx.shadowBlur = 0;
+                
+                // маленькая подпись
+                ctx.font = '10px monospace';
+                ctx.fillStyle = '#bbaa77';
+                ctx.fillText('лови фрукты, ❄️ замедление, ❤️ жизни', CW/2-130, CH-20);
+            }
+            else if(!gameRunning) {
+                // Game Over экран
+                ctx.globalAlpha = 0.85;
+                ctx.fillStyle = '#1b1b2c';
+                ctx.fillRect(0, 0, CW, CH);
+                ctx.globalAlpha = 1;
+                ctx.font = 'bold 24px monospace';
+                ctx.fillStyle = '#ffb347';
+                ctx.fillText('GAME OVER', CW/2-85, CH/2-15);
+                ctx.font = '12px monospace';
+                ctx.fillStyle = '#ffdd99';
+                ctx.fillText('нажми 🔄', CW/2-35, CH/2+20);
+            }
+        }
+        
+        // обработка клика по стартовой кнопке (нарисованной)
+        canvas.addEventListener('click', (e) => {
+            if(!gameStarted && canvas.startButtonRect) {
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                const mouseX = (e.clientX - rect.left) * scaleX;
+                const mouseY = (e.clientY - rect.top) * scaleY;
+                const btn = canvas.startButtonRect;
+                if(mouseX >= btn.x && mouseX <= btn.x + btn.w && mouseY >= btn.y && mouseY <= btn.y + btn.h) {
+                    startGame();
+                }
+            }
+        });
+        
+        function gameUpdate() {
+            if(gameStarted && gameRunning) {
+                updateDifficulty();
+                handleSpawning();
+                updateItems();
+            }
+            draw();
+            requestAnimationFrame(gameUpdate);
+        }
+        
+        // инициализация: игра не запущена, но тележка на месте
+        cartX = (CW - CART_W)/2;
+        gameStarted = false;
+        gameRunning = false;
+        updateUI();
         gameUpdate();
     })();
 </script>
