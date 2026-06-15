@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Collector - Фрукты, бомбы, замедление и жизни</title>
+    <style>
+        * {
+            user-select: none;
+            touch-action: none;
+        }
+        body {
+            background: #1a472a;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Segoe UI', monospace;
+            padding: 8px;
+        }
+        .game-container {
+            background: #2b1e0f;
+            border-radius: 20px;
+            padding: 10px 8px 12px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+        }
+        canvas {
+            display: block;
+            margin: 0 auto;
+            border-radius: 12px;
+            background: #fef7e0;
+            cursor: none;
+            width: 100%;
+            height: auto;
+        }
+        .info-panel {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 8px;
+            padding: 6px 12px;
+            background: #3e2a1f;
+            border-radius: 40px;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .stats {
+            display: flex;
+            gap: 12px;
+            background: #1f1409;
+            padding: 4px 12px;
+            border-radius: 30px;
+            font-weight: bold;
+        }
+        .stats span {
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+        .score { color: #ffd966; }
+        .lives { color: #ff8a7a; }
+        .best { color: #aaffdd; }
+        .combo {
+            background: #ffb347;
+            color: #2c1a0c;
+            padding: 3px 12px;
+            border-radius: 30px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+        button {
+            background: #f4a261;
+            border: none;
+            font-weight: bold;
+            font-size: 0.9rem;
+            padding: 4px 14px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        button:active {
+            transform: translateY(1px);
+        }
+        @media (max-width: 500px) {
+            .stats span { font-size: 0.9rem; }
+            .combo { font-size: 0.7rem; padding: 2px 8px; }
+            button { font-size: 0.8rem; padding: 3px 12px; }
+            .info-panel { gap: 6px; }
+        }
+    </style>
+</head>
+<body>
+<div>
+    <div class="game-container">
+        <canvas id="gameCanvas" width="500" height="340"></canvas>
+        <div class="info-panel">
+            <div class="stats">
+                <span class="score">🍎<span id="scoreValue">0</span></span>
+                <span class="lives">❤️<span id="livesValue">3</span></span>
+                <span class="best">🏆<span id="bestValue">0</span></span>
+            </div>
+            <div class="combo" id="comboDisplay">⚡0x</div>
+            <button id="restartButton">🔄</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function(){
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // размеры
+        const CW = 500, CH = 340;
+        const CART_W = 70, CART_H = 14;
+        let cartX = (CW - CART_W) / 2;
+        const CART_Y = CH - CART_H - 4;
+        
+        let items = [];
+        let score = 0;
+        let lives = 3;
+        let bestScore = 0;
+        let gameRunning = true;
+        
+        let baseFallSpeed = 2.2;
+        let currentGlobalSpeed = baseFallSpeed;
+        let slowMotionTimer = null;
+        let slowMotionActive = false;
+        
+        let framesCounter = 0;
+        let spawnDelayFrames = 30;
+        const MIN_SPAWN = 22;
+        const MAX_SPAWN = 42;
+        
+        let comboCounter = 0;
+        
+        // UI элементы
+        const scoreSpan = document.getElementById('scoreValue');
+        const livesSpan = document.getElementById('livesValue');
+        const bestSpan = document.getElementById('bestValue');
+        const comboDisplay = document.getElementById('comboDisplay');
+        
+        // рекорд
+        try {
+            const saved = localStorage.getItem('collectorBest');
+            if(saved && !isNaN(parseInt(saved))) bestScore = parseInt(saved);
+            bestSpan.innerText = bestScore;
+        } catch(e) {}
+        
+        function updateUI() {
+            scoreSpan.innerText = Math.floor(score);
+            livesSpan.innerText = lives;
+            if(score > bestScore) {
+                bestScore = Math.floor(score);
+                bestSpan.innerText = bestScore;
+                try { localStorage.setItem('collectorBest', bestScore); } catch(e) {}
+            }
+            let comboText = comboCounter > 0 ? `x${comboCounter}` : `0x`;
+            comboDisplay.innerText = `🍬${comboText}`;
+        }
+        
+        function resetCombo() {
+            comboCounter = 0;
+            updateUI();
+        }
+        
+        function addScoreWithCombo(basePoints) {
+            let multiplier = 1 + Math.floor(comboCounter / 2);
+            if(multiplier > 5) multiplier = 5;
+            let gained = basePoints * multiplier;
+            score += gained;
+            updateUI();
+        }
+        
+        // Замедление включается ТОЛЬКО при сборе синего кристалла
+        function activateSlowMotion(durationMs) {
+            if(slowMotionTimer) clearTimeout(slowMotionTimer);
+            if(!slowMotionActive) {
+                currentGlobalSpeed = baseFallSpeed * 0.45;
+                slowMotionActive = true;
+            } else {
+                currentGlobalSpeed = baseFallSpeed * 0.45;
+                // продлеваем замедление
+            }
+            slowMotionTimer = setTimeout(() => {
+                currentGlobalSpeed = baseFallSpeed;
+                slowMotionActive = false;
+                slowMotionTimer = null;
+            }, durationMs);
+        }
+        
+        // Добавление жизни (сердечко)
+        function addLife() {
+            if(lives < 10) { // максимум 10 жизней, чтобы не было бесконечно
+                lives++;
+                updateUI();
+            }
+        }
+        
+        function updateDifficulty() {
+            let newBase = 2.2 + (Math.floor(score / 300)) * 0.4;
+            if(newBase > 4.8) newBase = 4.8;
+            baseFallSpeed = newBase;
+            if(!slowMotionActive) currentGlobalSpeed = baseFallSpeed;
+            else currentGlobalSpeed = baseFallSpeed * 0.45;
+            
+            let newSpawn = Math.max(MIN_SPAWN, MAX_SPAWN - Math.floor(score / 160));
+            spawnDelayFrames = Math.min(MAX_SPAWN, newSpawn);
+        }
+        
+        function spawnItem() {
+            if(!gameRunning) return;
+            const rand = Math.random();
+            let type = 'fruit';
+            let subType = null;
+            
+            // Шансы: 
+            // 50% фрукт обычный
+            // 15% синий кристалл (замедление)
+            // 10% сердечко (+1 жизнь)
+            // 25% бомба
+            if(rand < 0.25) {
+                type = 'bomb';
+            } else if(rand < 0.35) {
+                type = 'heart';      // ❤️ сердечко - добавляет жизнь
+            } else if(rand < 0.50) {
+                type = 'slow_gem';   // 💎 синий кристалл замедления
+            } else {
+                type = 'fruit';
+                // обычные фрукты могут быть оранжевыми (без подтипа)
+            }
+            
+            const randX = 8 + Math.random() * (CW - 16);
+            let individualSpeed = currentGlobalSpeed;
+            
+            if(type === 'bomb') {
+                let extra = 1 + Math.floor(score / 700);
+                if(extra > 1.6) extra = 1.6;
+                individualSpeed = currentGlobalSpeed + extra * 0.6;
+            } else if(type === 'heart') {
+                // сердечко чуть медленнее, чтобы легче было поймать
+                individualSpeed = currentGlobalSpeed * 0.8;
+            } else if(type === 'slow_gem') {
+                // кристалл замедления нормальной скорости
+                individualSpeed = currentGlobalSpeed * 0.9;
+            }
+            
+            items.push({
+                x: randX, y: -10, 
+                type: type, 
+                subType: subType,
+                speed: individualSpeed, 
+                radius: 8
+            });
+        }
+        
+        function catchItem(item) {
+            if(item.type === 'fruit') {
+                // обычный фрукт
+                addScoreWithCombo(10);
+                comboCounter++;
+                updateUI();
+            } 
+            else if(item.type === 'slow_gem') {
+                // синий кристалл - даёт очки и включает замедление
+                addScoreWithCombo(15);  // больше очков чем фрукт
+                comboCounter++;
+                updateUI();
+                activateSlowMotion(3000); // 3 секунды замедления
+            }
+            else if(item.type === 'heart') {
+                // сердечко - добавляет жизнь + немного очков
+                addScoreWithCombo(20);  // бонусные очки
+                addLife();
+                comboCounter++;
+                updateUI();
+            }
+            else if(item.type === 'bomb') {
+                // бомба - отнимает жизнь и сбрасывает комбо
+                lives--;
+                updateUI();
+                resetCombo();
+                if(lives <= 0) {
+                    gameRunning = false;
+                    lives = 0;
+                    updateUI();
+                }
+            }
+        }
+        
+        function updateItems() {
+            if(!gameRunning) return;
+            const cartRect = { x: cartX, y: CART_Y, w: CART_W, h: CART_H };
+            const newItems = [];
+            for(let item of items) {
+                item.y += item.speed;
+                const itemRect = { x: item.x - item.radius, y: item.y - item.radius, w: item.radius*2, h: item.radius*2 };
+                if(itemRect.x < cartRect.x + cartRect.w && itemRect.x + itemRect.w > cartRect.x &&
+                   itemRect.y < cartRect.y + cartRect.h && itemRect.y + itemRect.h > cartRect.y) {
+                    catchItem(item);
+                    continue;
+                }
+                if(item.y - item.radius > CH) {
+                    if(item.type === 'fruit' && gameRunning) resetCombo();
+                    if(item.type === 'slow_gem' && gameRunning) resetCombo();  // промах по кристаллу тоже сбрасывает комбо
+                    if(item.type === 'heart' && gameRunning) resetCombo();
+                    continue;
+                }
+                newItems.push(item);
+            }
+            items = newItems;
+        }
+        
+        function handleSpawning() {
+            if(!gameRunning) return;
+            framesCounter++;
+            if(framesCounter >= spawnDelayFrames) {
+                framesCounter = 0;
+                spawnItem();
+                if(Math.random() < 0.3 && items.length < 10) spawnItem();
+            }
+        }
+        
+        // управление для телефона
+        function handleMove(clientX) {
+            if(!gameRunning) return;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = CW / rect.width;
+            let canvasX = (clientX - rect.left) * scaleX;
+            canvasX = Math.min(Math.max(canvasX, CART_W/2), CW - CART_W/2);
+            cartX = canvasX - CART_W/2;
+            if(cartX < 0) cartX = 0;
+            if(cartX + CART_W > CW) cartX = CW - CART_W;
+        }
+        
+        canvas.addEventListener('mousemove', (e) => handleMove(e.clientX));
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if(e.touches[0]) handleMove(e.touches[0].clientX);
+        });
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if(e.touches[0]) handleMove(e.touches[0].clientX);
+        });
+        canvas.addEventListener('click', (e) => handleMove(e.clientX));
+        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+        
+        // отрисовка
+        function draw() {
+            ctx.clearRect(0, 0, CW, CH);
+            ctx.fillStyle = '#fdf8e7';
+            ctx.fillRect(0, 0, CW, CH);
+            
+            // лёгкая сетка
+            ctx.strokeStyle = '#e9dfb0';
+            ctx.lineWidth = 0.5;
+            for(let i=0; i<CW; i+=40) {
+                ctx.beginPath();
+                ctx.moveTo(i, 0);
+                ctx.lineTo(i, CH);
+                ctx.stroke();
+                ctx.moveTo(0, i%CH);
+                ctx.lineTo(CW, i%CH);
+                ctx.stroke();
+            }
+            
+            for(let item of items) {
+                if(item.type === 'fruit') {
+                    // оранжевый фрукт
+                    const grad = ctx.createRadialGradient(item.x-2, item.y-2, 2, item.x, item.y, 9);
+                    grad.addColorStop(0, '#ff7e40');
+                    grad.addColorStop(1, '#e63e10');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(item.x, item.y, item.radius, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.fillStyle = '#583c1a';
+                    ctx.beginPath();
+                    ctx.arc(item.x-2, item.y-3, 1.8, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.fillStyle = '#fff9cf';
+                    ctx.beginPath();
+                    ctx.arc(item.x-3, item.y-4, 1, 0, Math.PI*2);
+                    ctx.fill();
+                }
+                else if(item.type === 'slow_gem') {
+                    // синий кристалл (замедление)
+                    ctx.fillStyle = '#4a9eff';
+                    ctx.beginPath();
+                    ctx.arc(item.x, item.y, item.radius, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = `${item.radius+4}px monospace`;
+                    ctx.fillText('❄️', item.x-7, item.y+5);
+                    // блик
+                    ctx.fillStyle = '#c8e7ff';
+                    ctx.beginPath();
+                    ctx.arc(item.x-2, item.y-3, 2, 0, Math.PI*2);
+                    ctx.fill();
+                }
+                else if(item.type === 'heart') {
+                    // сердечко (+1 жизнь)
+                    ctx.fillStyle = '#ff4466';
+                    ctx.beginPath();
+                    ctx.arc(item.x, item.y, item.radius, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = `${item.radius+4}px monospace`;
+                    ctx.fillText('❤️', item.x-7, item.y+5);
+                    ctx.fillStyle = '#ffaacc';
+                    ctx.beginPath();
+                    ctx.arc(item.x-2, item.y-3, 2, 0, Math.PI*2);
+                    ctx.fill();
+                }
+                else if(item.type === 'bomb') {
+                    // бомба
+                    ctx.fillStyle = '#2b2b2b';
+                    ctx.beginPath();
+                    ctx.arc(item.x, item.y, item.radius, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.fillStyle = '#a51f1f';
+                    ctx.beginPath();
+                    ctx.arc(item.x, item.y, item.radius-3, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.fillStyle = '#ff884d';
+                    ctx.font = `${item.radius+3}px monospace`;
+                    ctx.fillText('💣', item.x-6, item.y+5);
+                }
+            }
+            
+            // тележка
+            ctx.fillStyle = '#bd7a3a';
+            ctx.fillRect(cartX, CART_Y, CART_W, CART_H);
+            ctx.fillStyle = '#e7a05e';
+            ctx.fillRect(cartX+5, CART_Y-3, CART_W-10, 5);
+            ctx.fillStyle = '#4f2f10';
+            ctx.fillRect(cartX+12, CART_Y+3, 8, 7);
+            ctx.fillRect(cartX+CART_W-20, CART_Y+3, 8, 7);
+            
+            // индикатор замедления
+            if(slowMotionActive) {
+                ctx.font = "bold 12px monospace";
+                ctx.fillStyle = "#3399ffcc";
+                ctx.fillText("🐢 ЗАМЕДЛЕНИЕ", CW-95, 22);
+                // таймер визуально
+                if(slowMotionTimer) {
+                    ctx.fillStyle = "#88aaff";
+                    ctx.fillRect(CW-95, 26, 70, 4);
+                }
+            }
+            
+            // небольшие подсказки
+            ctx.font = "9px monospace";
+            ctx.fillStyle = "#8b6946";
+            ctx.fillText("❄️=замедление  ❤️=+жизнь", CW-150, CH-8);
+            
+            if(!gameRunning) {
+                ctx.globalAlpha = 0.85;
+                ctx.fillStyle = '#1b1b2c';
+                ctx.fillRect(0, 0, CW, CH);
+                ctx.globalAlpha = 1;
+                ctx.font = 'bold 24px monospace';
+                ctx.fillStyle = '#ffb347';
+                ctx.fillText('GAME OVER', CW/2-85, CH/2-15);
+                ctx.font = '12px monospace';
+                ctx.fillStyle = '#ffdd99';
+                ctx.fillText('нажми 🔄', CW/2-35, CH/2+20);
+            }
+        }
+        
+        function gameUpdate() {
+            if(gameRunning) {
+                updateDifficulty();
+                handleSpawning();
+                updateItems();
+            }
+            draw();
+            requestAnimationFrame(gameUpdate);
+        }
+        
+        function restartGame() {
+            gameRunning = true;
+            items = [];
+            score = 0;
+            lives = 3;
+            comboCounter = 0;
+            baseFallSpeed = 2.2;
+            currentGlobalSpeed = baseFallSpeed;
+            if(slowMotionTimer) {
+                clearTimeout(slowMotionTimer);
+                slowMotionTimer = null;
+            }
+            slowMotionActive = false;
+            framesCounter = 0;
+            spawnDelayFrames = 30;
+            cartX = (CW - CART_W)/2;
+            updateUI();
+            updateDifficulty();
+        }
+        
+        document.getElementById('restartButton').addEventListener('click', () => restartGame());
+        
+        restartGame();
+        gameUpdate();
+    })();
+</script>
+</body>
+</html>
