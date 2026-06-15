@@ -123,8 +123,8 @@
         let score = 0;
         let lives = 3;
         let bestScore = 0;
-        let gameRunning = false;     // игра не запущена до старта
-        let gameStarted = false;     // флаг, что было нажато "Старт"
+        let gameRunning = false;
+        let gameStarted = false;
         
         let baseFallSpeed = 2.2;
         let currentGlobalSpeed = baseFallSpeed;
@@ -324,7 +324,7 @@
             }
         }
         
-        // управление
+        // управление тележкой
         function handleMove(clientX) {
             if(!gameRunning || !gameStarted) return;
             const rect = canvas.getBoundingClientRect();
@@ -345,7 +345,6 @@
             e.preventDefault();
             if(e.touches[0]) handleMove(e.touches[0].clientX);
         });
-        canvas.addEventListener('click', (e) => handleMove(e.clientX));
         canvas.addEventListener('contextmenu', (e) => e.preventDefault());
         
         // СТАРТ ИГРЫ
@@ -371,7 +370,7 @@
             updateDifficulty();
         }
         
-        // Перезапуск (после Game Over)
+        // Перезапуск
         function restartGame() {
             if(!gameStarted) {
                 startGame();
@@ -404,7 +403,42 @@
             }
         });
         
-        // отрисовка со стартовым меню
+        // ========== ОБРАБОТЧИК ДЛЯ СТАРТОВОЙ КНОПКИ (ИСПРАВЛЕН) ==========
+        function handleCanvasClick(e) {
+            if(gameStarted) return; // если игра уже началась, не мешаем
+            
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            let clientX, clientY;
+            if(e.touches) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+                e.preventDefault();
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            
+            const canvasX = (clientX - rect.left) * scaleX;
+            const canvasY = (clientY - rect.top) * scaleY;
+            
+            // координаты кнопки (должны совпадать с отрисовкой)
+            const btnX = CW/2 - 55;
+            const btnY = CH/2 + 15;
+            const btnW = 110;
+            const btnH = 38;
+            
+            if(canvasX >= btnX && canvasX <= btnX + btnW && canvasY >= btnY && canvasY <= btnY + btnH) {
+                startGame();
+            }
+        }
+        
+        canvas.addEventListener('click', handleCanvasClick);
+        canvas.addEventListener('touchstart', handleCanvasClick);
+        
+        // отрисовка
         function draw() {
             ctx.clearRect(0, 0, CW, CH);
             ctx.fillStyle = '#fdf8e7';
@@ -423,7 +457,7 @@
                 ctx.stroke();
             }
             
-            // предметы (только если игра активна)
+            // предметы
             if(gameStarted && gameRunning) {
                 for(let item of items) {
                     if(item.type === 'fruit') {
@@ -485,7 +519,7 @@
                 }
             }
             
-            // тележка (всегда рисуем, даже в меню)
+            // тележка
             ctx.fillStyle = '#bd7a3a';
             ctx.fillRect(cartX, CART_Y, CART_W, CART_H);
             ctx.fillStyle = '#e7a05e';
@@ -533,26 +567,23 @@
                 ctx.fillRect(0, 0, CW, CH);
                 ctx.globalAlpha = 1;
                 
-                // заголовок
                 ctx.font = 'bold 28px "Segoe UI", monospace';
                 ctx.fillStyle = '#ffd966';
                 ctx.shadowBlur = 4;
                 ctx.shadowColor = '#00000080';
                 ctx.fillText('🍎 COLLECTOR', CW/2-100, CH/2-60);
                 
-                // надпись "Готов(а)?" 
                 ctx.font = '18px monospace';
                 ctx.fillStyle = '#ffe0aa';
                 ctx.fillText('Готов(а) ?', CW/2-45, CH/2-15);
                 
-                // кнопка старт (нарисованная)
+                // кнопка старт
                 const btnX = CW/2 - 55;
                 const btnY = CH/2 + 15;
                 const btnW = 110;
                 const btnH = 38;
                 
                 ctx.fillStyle = '#f4a261';
-                ctx.shadowBlur = 3;
                 ctx.fillRect(btnX, btnY, btnW, btnH);
                 ctx.fillStyle = '#2d1c0c';
                 ctx.font = 'bold 20px monospace';
@@ -561,19 +592,13 @@
                 ctx.lineWidth = 1.5;
                 ctx.strokeRect(btnX, btnY, btnW, btnH);
                 
-                // проверка нажатия на кнопку (через координаты клика по canvas)
-                // сохраняем последние координаты клика для проверки
-                canvas.startButtonRect = { x: btnX, y: btnY, w: btnW, h: btnH };
-                
                 ctx.shadowBlur = 0;
                 
-                // маленькая подпись
                 ctx.font = '10px monospace';
                 ctx.fillStyle = '#bbaa77';
                 ctx.fillText('лови фрукты, ❄️ замедление, ❤️ жизни', CW/2-130, CH-20);
             }
             else if(!gameRunning) {
-                // Game Over экран
                 ctx.globalAlpha = 0.85;
                 ctx.fillStyle = '#1b1b2c';
                 ctx.fillRect(0, 0, CW, CH);
@@ -587,21 +612,6 @@
             }
         }
         
-        // обработка клика по стартовой кнопке (нарисованной)
-        canvas.addEventListener('click', (e) => {
-            if(!gameStarted && canvas.startButtonRect) {
-                const rect = canvas.getBoundingClientRect();
-                const scaleX = canvas.width / rect.width;
-                const scaleY = canvas.height / rect.height;
-                const mouseX = (e.clientX - rect.left) * scaleX;
-                const mouseY = (e.clientY - rect.top) * scaleY;
-                const btn = canvas.startButtonRect;
-                if(mouseX >= btn.x && mouseX <= btn.x + btn.w && mouseY >= btn.y && mouseY <= btn.y + btn.h) {
-                    startGame();
-                }
-            }
-        });
-        
         function gameUpdate() {
             if(gameStarted && gameRunning) {
                 updateDifficulty();
@@ -612,7 +622,6 @@
             requestAnimationFrame(gameUpdate);
         }
         
-        // инициализация: игра не запущена, но тележка на месте
         cartX = (CW - CART_W)/2;
         gameStarted = false;
         gameRunning = false;
