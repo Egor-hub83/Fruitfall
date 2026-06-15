@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Collector - Фрукты, бомбы, замедление и жизни</title>
+    <title>Collector - Slow & Fast</title>
     <style>
         * {
             user-select: none;
@@ -127,6 +127,8 @@
         let currentGlobalSpeed = baseFallSpeed;
         let slowMotionTimer = null;
         let slowMotionActive = false;
+        let slowMotionStartTime = 0;     // время начала замедления
+        let slowMotionDuration = 3000;   // 3 секунды
         
         let framesCounter = 0;
         let spawnDelayFrames = 30;
@@ -173,16 +175,20 @@
             updateUI();
         }
         
-        // Замедление включается ТОЛЬКО при сборе синего кристалла
+        // Замедление с запоминанием времени старта для полоски
         function activateSlowMotion(durationMs) {
             if(slowMotionTimer) clearTimeout(slowMotionTimer);
+            
             if(!slowMotionActive) {
                 currentGlobalSpeed = baseFallSpeed * 0.45;
                 slowMotionActive = true;
             } else {
                 currentGlobalSpeed = baseFallSpeed * 0.45;
-                // продлеваем замедление
             }
+            
+            slowMotionStartTime = Date.now();
+            slowMotionDuration = durationMs;
+            
             slowMotionTimer = setTimeout(() => {
                 currentGlobalSpeed = baseFallSpeed;
                 slowMotionActive = false;
@@ -190,9 +196,17 @@
             }, durationMs);
         }
         
-        // Добавление жизни (сердечко)
+        // Получить оставшийся процент замедления (для полоски)
+        function getSlowMotionPercent() {
+            if(!slowMotionActive) return 0;
+            const elapsed = Date.now() - slowMotionStartTime;
+            const remaining = Math.max(0, slowMotionDuration - elapsed);
+            return (remaining / slowMotionDuration) * 100;
+        }
+        
+        // Добавление жизни
         function addLife() {
-            if(lives < 10) { // максимум 10 жизней, чтобы не было бесконечно
+            if(lives < 10) {
                 lives++;
                 updateUI();
             }
@@ -213,22 +227,16 @@
             if(!gameRunning) return;
             const rand = Math.random();
             let type = 'fruit';
-            let subType = null;
             
-            // Шансы: 
-            // 50% фрукт обычный
-            // 15% синий кристалл (замедление)
-            // 10% сердечко (+1 жизнь)
-            // 25% бомба
+            // Шансы: 48% фрукт, 15% кристалл, 12% сердечко, 25% бомба
             if(rand < 0.25) {
                 type = 'bomb';
-            } else if(rand < 0.35) {
-                type = 'heart';      // ❤️ сердечко - добавляет жизнь
-            } else if(rand < 0.50) {
-                type = 'slow_gem';   // 💎 синий кристалл замедления
+            } else if(rand < 0.37) {
+                type = 'heart';
+            } else if(rand < 0.52) {
+                type = 'slow_gem';
             } else {
                 type = 'fruit';
-                // обычные фрукты могут быть оранжевыми (без подтипа)
             }
             
             const randX = 8 + Math.random() * (CW - 16);
@@ -239,17 +247,14 @@
                 if(extra > 1.6) extra = 1.6;
                 individualSpeed = currentGlobalSpeed + extra * 0.6;
             } else if(type === 'heart') {
-                // сердечко чуть медленнее, чтобы легче было поймать
                 individualSpeed = currentGlobalSpeed * 0.8;
             } else if(type === 'slow_gem') {
-                // кристалл замедления нормальной скорости
                 individualSpeed = currentGlobalSpeed * 0.9;
             }
             
             items.push({
                 x: randX, y: -10, 
                 type: type, 
-                subType: subType,
                 speed: individualSpeed, 
                 radius: 8
             });
@@ -257,27 +262,23 @@
         
         function catchItem(item) {
             if(item.type === 'fruit') {
-                // обычный фрукт
                 addScoreWithCombo(10);
                 comboCounter++;
                 updateUI();
             } 
             else if(item.type === 'slow_gem') {
-                // синий кристалл - даёт очки и включает замедление
-                addScoreWithCombo(15);  // больше очков чем фрукт
+                addScoreWithCombo(15);
                 comboCounter++;
                 updateUI();
-                activateSlowMotion(3000); // 3 секунды замедления
+                activateSlowMotion(3000);
             }
             else if(item.type === 'heart') {
-                // сердечко - добавляет жизнь + немного очков
-                addScoreWithCombo(20);  // бонусные очки
+                addScoreWithCombo(20);
                 addLife();
                 comboCounter++;
                 updateUI();
             }
             else if(item.type === 'bomb') {
-                // бомба - отнимает жизнь и сбрасывает комбо
                 lives--;
                 updateUI();
                 resetCombo();
@@ -302,9 +303,9 @@
                     continue;
                 }
                 if(item.y - item.radius > CH) {
-                    if(item.type === 'fruit' && gameRunning) resetCombo();
-                    if(item.type === 'slow_gem' && gameRunning) resetCombo();  // промах по кристаллу тоже сбрасывает комбо
-                    if(item.type === 'heart' && gameRunning) resetCombo();
+                    if((item.type === 'fruit' || item.type === 'slow_gem' || item.type === 'heart') && gameRunning) {
+                        resetCombo();
+                    }
                     continue;
                 }
                 newItems.push(item);
@@ -322,7 +323,7 @@
             }
         }
         
-        // управление для телефона
+        // управление
         function handleMove(clientX) {
             if(!gameRunning) return;
             const rect = canvas.getBoundingClientRect();
@@ -346,13 +347,13 @@
         canvas.addEventListener('click', (e) => handleMove(e.clientX));
         canvas.addEventListener('contextmenu', (e) => e.preventDefault());
         
-        // отрисовка
+        // отрисовка с полоской замедления
         function draw() {
             ctx.clearRect(0, 0, CW, CH);
             ctx.fillStyle = '#fdf8e7';
             ctx.fillRect(0, 0, CW, CH);
             
-            // лёгкая сетка
+            // сетка
             ctx.strokeStyle = '#e9dfb0';
             ctx.lineWidth = 0.5;
             for(let i=0; i<CW; i+=40) {
@@ -365,9 +366,9 @@
                 ctx.stroke();
             }
             
+            // предметы
             for(let item of items) {
                 if(item.type === 'fruit') {
-                    // оранжевый фрукт
                     const grad = ctx.createRadialGradient(item.x-2, item.y-2, 2, item.x, item.y, 9);
                     grad.addColorStop(0, '#ff7e40');
                     grad.addColorStop(1, '#e63e10');
@@ -385,7 +386,6 @@
                     ctx.fill();
                 }
                 else if(item.type === 'slow_gem') {
-                    // синий кристалл (замедление)
                     ctx.fillStyle = '#4a9eff';
                     ctx.beginPath();
                     ctx.arc(item.x, item.y, item.radius, 0, Math.PI*2);
@@ -393,14 +393,12 @@
                     ctx.fillStyle = '#ffffff';
                     ctx.font = `${item.radius+4}px monospace`;
                     ctx.fillText('❄️', item.x-7, item.y+5);
-                    // блик
                     ctx.fillStyle = '#c8e7ff';
                     ctx.beginPath();
                     ctx.arc(item.x-2, item.y-3, 2, 0, Math.PI*2);
                     ctx.fill();
                 }
                 else if(item.type === 'heart') {
-                    // сердечко (+1 жизнь)
                     ctx.fillStyle = '#ff4466';
                     ctx.beginPath();
                     ctx.arc(item.x, item.y, item.radius, 0, Math.PI*2);
@@ -414,7 +412,6 @@
                     ctx.fill();
                 }
                 else if(item.type === 'bomb') {
-                    // бомба
                     ctx.fillStyle = '#2b2b2b';
                     ctx.beginPath();
                     ctx.arc(item.x, item.y, item.radius, 0, Math.PI*2);
@@ -438,19 +435,38 @@
             ctx.fillRect(cartX+12, CART_Y+3, 8, 7);
             ctx.fillRect(cartX+CART_W-20, CART_Y+3, 8, 7);
             
-            // индикатор замедления
+            // ========== ПОЛОСКА ЗАМЕДЛЕНИЯ (постепенно исчезает) ==========
             if(slowMotionActive) {
-                ctx.font = "bold 12px monospace";
-                ctx.fillStyle = "#3399ffcc";
-                ctx.fillText("🐢 ЗАМЕДЛЕНИЕ", CW-95, 22);
-                // таймер визуально
-                if(slowMotionTimer) {
-                    ctx.fillStyle = "#88aaff";
-                    ctx.fillRect(CW-95, 26, 70, 4);
-                }
+                const percent = getSlowMotionPercent();
+                const barWidth = 120;
+                const barHeight = 10;
+                const barX = CW - barWidth - 10;
+                const barY = 12;
+                
+                // фон полоски
+                ctx.fillStyle = '#334455aa';
+                ctx.fillRect(barX, barY, barWidth, barHeight);
+                
+                // заполненная часть (уменьшается со временем)
+                const fillWidth = (percent / 100) * barWidth;
+                const gradient = ctx.createLinearGradient(barX, barY, barX + barWidth, barY);
+                gradient.addColorStop(0, '#88ccff');
+                gradient.addColorStop(1, '#3399ff');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(barX, barY, fillWidth, barHeight);
+                
+                // обводка
+                ctx.strokeStyle = '#ffffffcc';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(barX, barY, barWidth, barHeight);
+                
+                // текст "SLOW"
+                ctx.font = "bold 9px monospace";
+                ctx.fillStyle = "#aaddff";
+                ctx.fillText("❄️ ЗАМЕДЛЕНИЕ", barX, barY - 3);
             }
             
-            // небольшие подсказки
+            // подсказки
             ctx.font = "9px monospace";
             ctx.fillStyle = "#8b6946";
             ctx.fillText("❄️=замедление  ❤️=+жизнь", CW-150, CH-8);
